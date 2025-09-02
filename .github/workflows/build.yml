@@ -1,0 +1,75 @@
+name: Build and Test SYNOPSIS
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential lcov
+
+      - name: Configure project
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -- -j$(nproc)
+
+      - name: Run tests
+        run: |
+          cd build
+          ctest --output-on-failure
+
+      # --- Artifacts ---
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: synopsis-binaries
+          path: |
+            build/bin/
+            build/lib/
+
+      - name: Upload test logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: build/Testing/Temporary/LastTest.log
+
+      - name: Package project (CPack)
+        run: cmake --build build --target package
+
+      - name: Upload packages
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synopsis-packages
+          path: |
+            build/*.tar.gz
+            build/*.deb
+            build/*.rpm
+            build/*.zip
+
+      # --- Optional: Coverage ---
+      # Enable this if you add coverage instrumentation in CMake
+      # - name: Capture coverage
+      #   run: |
+      #     cd build
+      #     lcov --capture --directory . --output-file coverage.info
+      #     genhtml coverage.info --output-directory coverage-report
+      #
+      # - name: Upload coverage report
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: coverage-report
+      #     path: build/coverage-report/
