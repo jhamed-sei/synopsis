@@ -1,4 +1,4 @@
-name: Build, Test and Secure SYNOPSIS
+name: SYNOPSIS Pipeline
 
 on:
   push:
@@ -51,12 +51,9 @@ jobs:
           path: build/Testing/Temporary/LastTest.log
 
   codeql:
-    uses: github/codeql-action/init@v3
-    with:
-      languages: cpp, python
+    runs-on: ubuntu-latest
     permissions:
       security-events: write
-    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: github/codeql-action/init@v3
