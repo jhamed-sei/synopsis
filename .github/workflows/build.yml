@@ -1,14 +1,20 @@
-name: Build and Test SYNOPSIS
+name: Build, Test and Secure SYNOPSIS
 
 on:
   push:
     branches: [ main ]
   pull_request:
+  schedule:
+    - cron: '0 3 * * 0' # run weekly on Sundays
+
+permissions:
+  contents: read
+  security-events: write   # needed for uploading to Security tab
+  actions: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -29,8 +35,6 @@ jobs:
           cd build
           ctest --output-on-failure
 
-      # --- Artifacts ---
-
       - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
@@ -46,30 +50,102 @@ jobs:
           name: test-logs
           path: build/Testing/Temporary/LastTest.log
 
-      - name: Package project (CPack)
-        run: cmake --build build --target package
+  codeql:
+    uses: github/codeql-action/init@v3
+    with:
+      languages: cpp, python
+    permissions:
+      security-events: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: cpp, python
+      - uses: github/codeql-action/autobuild@v3
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "codeql"
 
-      - name: Upload packages
-        if: success()
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: "p/default"
+      - name: Upload Semgrep SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+      - name: Upload Semgrep Report
         uses: actions/upload-artifact@v4
         with:
-          name: synopsis-packages
-          path: |
-            build/*.tar.gz
-            build/*.deb
-            build/*.rpm
-            build/*.zip
+          name: semgrep-report
+          path: semgrep.sarif
 
-      # --- Optional: Coverage ---
-      # Enable this if you add coverage instrumentation in CMake
-      # - name: Capture coverage
-      #   run: |
-      #     cd build
-      #     lcov --capture --directory . --output-file coverage.info
-      #     genhtml coverage.info --output-directory coverage-report
-      #
-      # - name: Upload coverage report
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: coverage-report
-      #     path: build/coverage-report/
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        with:
+          args: detect --report-format sarif --report-path gitleaks.sarif
+      - name: Upload SARIF to Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gitleaks.sarif
+      - name: Upload Gitleaks Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: gitleaks.sarif
+
+  syft-grype:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Syft and Grype
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+      - name: Generate SBOM (Syft)
+        run: syft dir:. -o json > sbom.json
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-syft
+          path: sbom.json
+      - name: Scan SBOM with Grype
+        run: grype sbom:sbom.json -o sarif > grype.sarif
+      - name: Upload Grype SARIF to Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: grype.sarif
+      - name: Upload Grype Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: grype-report
+          path: grype.sarif
+
+  osv-scanner:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OSV Scanner
+        run: |
+          curl -sSL https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64 -o /usr/local/bin/osv-scanner
+          chmod +x /usr/local/bin/osv-scanner
+      - name: Run OSV Scanner
+        run: osv-scanner --recursive . --format sarif > osv.sarif
+      - name: Upload OSV SARIF to Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: osv.sarif
+      - name: Upload OSV Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: osv-report
+          path: osv.sarif
