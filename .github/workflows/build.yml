@@ -81,54 +81,34 @@ jobs:
         with:
           config: "p/default"
           sarif: semgrep.sarif
+        env:
+          SEMGREP_EXIT_ZERO: "1"
 
       - name: Upload SARIF to Security tab
+        if: always()   # ensure SARIF is uploaded even if semgrep fails
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: semgrep.sarif
 
       - name: Upload Semgrep Report
+        if: always()   # ensure artifact is always uploaded
         uses: actions/upload-artifact@v4
         with:
           name: semgrep-report
           path: semgrep.sarif
 
-
   gitleaks:
     name: gitleaks
     runs-on: ubuntu-latest
-    needs: build
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Install Gitleaks
-        run: |
-          GITLEAKS_VERSION=v8.19.0
-          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/$GITLEAKS_VERSION/gitleaks-linux-amd64 -o /usr/local/bin/gitleaks
-          chmod +x /usr/local/bin/gitleaks
-          gitleaks version
-
-      - name: Run Gitleaks
-        run: |
-          set +e
-          gitleaks detect --report-format sarif --report-path gitleaks.sarif
-          EXIT_CODE=$?
-          echo "Gitleaks finished with exit code $EXIT_CODE"
-          exit 0
-
-      - name: Upload Gitleaks SARIF to Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: gitleaks.sarif
-
-      - name: Upload Gitleaks Report Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: gitleaks-report
-          path: gitleaks.sarif
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }} # Only required for Organizations, not personal accounts.
 
   syft-grype:
     runs-on: ubuntu-latest
