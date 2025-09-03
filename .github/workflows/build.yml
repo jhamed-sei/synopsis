@@ -75,8 +75,8 @@ jobs:
 
       - name: Run Semgrep (Community Rules)
         run: |
-          semgrep --config=auto --json > semgrep-report.json --exit-code 0
-          semgrep --config=auto --sarif > semgrep-report.sarif --exit-code 0
+          semgrep --config=auto --json > semgrep-report.json 
+          semgrep --config=auto --sarif > semgrep-report.sarif
         continue-on-error: true
 
       - name: Upload Semgrep JSON Report
@@ -142,6 +142,7 @@ jobs:
         with:
           name: grype-report
           path: grype.sarif
+
   osv-scanner:
     name: osv-scanner
     runs-on: ubuntu-latest
@@ -167,16 +168,17 @@ jobs:
 
       - name: Run OSV-Scanner on SBOM
         run: |
-          osv-scanner --sbom sbom.spdx.json --format sarif > osv.sarif || true
+           # Always produce SARIF, even if some packages are unscannable
+           osv-scanner --sbom sbom.spdx.json --format sarif > osv.sarif || echo '{"runs":[]}' > osv.sarif
 
       - name: Upload SARIF to Security tab
-        if: always()
+        if: always() && exists('osv.sarif')
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: osv.sarif
 
       - name: Upload OSV Report
-        if: always()
+        if: always() && exists('osv.sarif')
         uses: actions/upload-artifact@v4
         with:
           name: osv-report
